@@ -71,8 +71,9 @@ async function getVolumes() {
 // returns boolean if found config at root of drive
 function checkDriveForConfig(path, label){
     let found = false
+    let files
     try{
-        let files = fs.readdirsync(path, {})
+        files = fs.readdirSync(path)
     }
     catch(err){
         log(chalk.red(err))
@@ -80,7 +81,7 @@ function checkDriveForConfig(path, label){
     }
     // check all files
     files.forEach(file=>{
-        if(file.includes(config.backer)){
+        if(file.includes('config.backer')){
             found = true
             return
         }
@@ -140,6 +141,31 @@ program
     
     
   })
+
+  // delete config
+program.command('delete config').description('Delete existing config').action(async()=>{
+  let index = await createIndex()
+  let configs = []
+  index.forEach((drive, driveIndex)=>{
+    // if config found on drive
+    if(checkDriveForConfig(drive.path, drive.label)){
+      configs.push({
+        drive
+      })
+      log(chalk.green(driveIndex) + ' ' + chalk.cyan(drive.label) + ' - ' + drive.path + '\n')
+    }
+    if(configs.length === 0){
+      log(chalk.red('No volumes found with configs.'))
+      return
+    }
+    // prompt which drive config to delete
+    prompt([{
+      message: 'Which config would you like to erase?',
+      type: 'input',
+      name: 'drive-to-delete'
+    }])
+  })
+})
 
 // edit a config
 program.command('edit config').description('Select a config to edit').action(async ()=>{
