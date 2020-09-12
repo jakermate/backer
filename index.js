@@ -50,6 +50,9 @@ async function createIndex() {
       return
     }
     indexArray.push({
+      size: drive.size,
+      device: drive.device,
+      description: drive.description,
       path: driveInfo.path,
       label: driveInfo.label,
     })
@@ -329,10 +332,23 @@ program
       return
     }
     log(chalk.green("Available Volumes:"))
+    // loop through each volume
     index.forEach((volume, indexIndex) => {
-      log(chalk.cyan(volume.label + " @ path - " + volume.path))
+      // check for existing config
+      if(checkDriveForConfig(volume.path, volume.label)){
+        log(chalk.white.bold(`${indexIndex} - `) + chalk.dim(`${volume.device}:` + volume.label + ` (${volume.description}) @ path - ` + volume.path ) + chalk.greenBright(' - configured for backup'))
+      }
+      else{
+        log(chalk.white(`${indexIndex} - `) + chalk.gray(`${volume.device}:` + volume.label + ` (${volume.description}) @ path - ` + volume.path) + chalk.yellow('unconfigured'))
+      }
     })
     log("\n")
+    // allow user to select drive for actions
+    prompt([{
+      message: 'Select a drive or exit (ctrl+c).',
+      name: 'driveSelect',
+      type:'input'
+    }])
   })
 
 program.parse(process.argv)
