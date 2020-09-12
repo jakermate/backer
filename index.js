@@ -65,6 +65,7 @@ async function createIndex() {
   return indexArray
 }
 
+
 // returns boolean if found config at root of drive
 function checkDriveForConfig(path, label) {
   let found = false
