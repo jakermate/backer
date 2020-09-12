@@ -8,10 +8,11 @@ const path = require("path")
 const log = console.log
 const figlet = require("figlet")
 const commander = require("commander")
-const {prompt} = require('inquirer')
+const { prompt } = require("inquirer")
 const { type } = require("os")
 const { error } = require("console")
-
+const readline = require('readline')
+const fsx = require('fs-extra')
 program.version("0.0.1")
 // greeting
 figlet(
@@ -28,13 +29,11 @@ figlet(
     log(
       chalk.greenBright("BACKER backup utility - v" + program.version() + "\n")
     )
-   
   }
 )
 
 let backupVolume = "volume not found"
 let backupPath = "path not found"
-let drives = getVolumes()
 
 async function createIndex() {
   let driveList = await dl.list()
@@ -47,8 +46,8 @@ async function createIndex() {
       return
     }
     // ignore if drive is system drive
-    if(drive.isSystem){
-        return
+    if (drive.isSystem) {
+      return
     }
     indexArray.push({
       path: driveInfo.path,
@@ -56,38 +55,31 @@ async function createIndex() {
     })
     lastDrive = driveInfo.path
   })
-  if(indexArray.length === 0){
-      log(chalk.red('Found no compatible volumes.'))
-      log(chalk.red('Try attaching an external or non-system drive.')) 
-
+  if (indexArray.length === 0) {
+    log(chalk.red("Found no compatible volumes."))
+    log(chalk.red("Try attaching an external or non-system drive."))
   }
   return indexArray
 }
-async function getVolumes() {
-  let drives = await dl.list()
-  return drives
-}
 
 // returns boolean if found config at root of drive
-function checkDriveForConfig(path, label){
-    let found = false
-    let files
-    try{
-        files = fs.readdirSync(path)
+function checkDriveForConfig(path, label) {
+  let found = false
+  let files
+  try {
+    files = fs.readdirSync(path)
+  } catch (err) {
+    log(chalk.red(err))
+    return
+  }
+  // check all files
+  files.forEach((file) => {
+    if (file.includes("config.backer")) {
+      found = true
+      return
     }
-    catch(err){
-        log(chalk.red(err))
-        return
-    }
-    // check all files
-    files.forEach(file=>{
-        if(file.includes('config.backer')){
-            found = true
-            return
-        }
-    })
-    return found
-    
+  })
+  return found
 }
 
 program.command("debug").action(async () => {
@@ -106,80 +98,197 @@ program
   .action(async () => {
     // first load in drive query data
     let index = await createIndex()
-    if(index.length < 1){
-        log(chalk.red('No compatible drives found. [Must not be a system drive (red-only)]'))
-        return
+    if (index.length < 1) {
+      log(
+        chalk.red(
+          "No compatible drives found. [Must not be a system drive (red-only)]"
+        )
+      )
+      return
     }
     // create prompt for which drive index to config
     index.forEach((drive, driveIndex) => {
-      log(chalk.green(driveIndex)+ ' '+ drive.label + ' - ' + drive.path + '\n')
+      log(
+        chalk.green(driveIndex) + " " + drive.label + " - " + drive.path + "\n"
+      )
     })
-    let promptAnswer = await prompt([{
-        type: 'input',
-        message: 'Select volume index...',
-        name: 'drive-index'
-    }])
-    let selected = promptAnswer['drive-index']
-    if(!index[selected]){
-        log(chalk.red('Invalid Index'))
-        return
+    let promptAnswer = await prompt([
+      {
+        type: "input",
+        message: "Select volume index...",
+        name: "drive-index",
+      },
+    ])
+    let selected = promptAnswer["drive-index"]
+    if (!index[selected]) {
+      log(chalk.red("Invalid Index"))
+      return
     }
-    log(chalk.cyan('Checking volume ' + selected + ' ' + index[selected].label ))
+    log(chalk.cyan("Checking volume " + selected + " " + index[selected].label))
     //now check for existing config on drive
     let drivePath = index[selected].path
     let files = fs.readdirSync(drivePath)
-    files.forEach((file, fileIndex)=>{
-        if(file.includes('config.backer')){
-            log(chalk.red('Config already exists on volume - ' + index[selected].label))
-            return
-        }
-      
-
+    files.forEach((file, fileIndex) => {
+      if (file.includes("config.backer")) {
+        log(
+          chalk.red(
+            "Config already exists on volume - " + index[selected].label
+          )
+        )
+        return
+      }
     })
-      // config doesn't exist, create new one here
-      fs.writeFileSync(path.join(drivePath, `config.backer`), 'testdata')
-    
-    
+    // config doesn't exist, create new one here
+    fs.writeFileSync(path.join(drivePath, `config.backer`), "testdata")
   })
 
-  // delete config
-program.command('delete config').description('Delete existing config').action(async()=>{
-  let index = await createIndex()
-  let configs = []
-  index.forEach((drive, driveIndex)=>{
-    // if config found on drive
-    if(checkDriveForConfig(drive.path, drive.label)){
-      configs.push({
-        drive
-      })
-      log(chalk.green(driveIndex) + ' ' + chalk.cyan(drive.label) + ' - ' + drive.path + '\n')
-    }
-    if(configs.length === 0){
-      log(chalk.red('No volumes found with configs.'))
+// delete config
+program
+  .command("delete config")
+  .description("Delete existing config")
+  .action(async () => {
+    let index = await createIndex()
+    let configs = []
+    index.forEach((drive, driveIndex) => {
+      // if config found on drive
+      if (checkDriveForConfig(drive.path, drive.label)) {
+        configs.push({
+          path: drive.path,
+          label: drive.label
+        })
+        log(
+          chalk.green(driveIndex) +
+            " " +
+            chalk.cyan(drive.label) +
+            " - " +
+            drive.path +
+            "\n"
+        )
+      }
+      
+    })
+
+    if (configs.length === 0) {
+      log(chalk.red("No volumes found with configs."))
       return
     }
     // prompt which drive config to delete
+    prompt([
+      {
+        message: "Which config would you like to erase?",
+        type: "input",
+        name: "drive-to-delete",
+      },
+    ]).then((data) => {
+      // if selection is invalid (drive doesnt exist), exit
+      if (!configs[data["drive-to-delete"]]) {
+        log(chalk.red('Invalid selection. Exiting...'))
+        return
+      }
+      log(
+        chalk.green("Selected drive " + data["drive-to-delete"] + " to erase backer config.")
+      )
+      // erase config
+      log(configs[data['drive-to-delete']])
+      fs.unlink(path.join(configs[data['drive-to-delete']].path, 'config.backer'), (err)=>{
+        if(err){
+          log(chalk.red('Config deletion error. Exiting.'))
+          return
+        }
+        log(chalk.green('Success deleting config on drive ') + chalk.cyan(' '+configs[data['drive-to-delete']].label + ' @ ' + configs[data['drive-to-delete']].path))
+      })
+
+    })
+  })
+
+// edit a config
+program
+  .command("edit config")
+  .description("Select a config to edit")
+  .action(async () => {
+    let index = await createIndex()
+    index.forEach((driveObj) => {
+      if (checkDriveForConfig(driveObj.path, driveObj.label)) {
+        log(chalk.greenBright("Found config in " + driveObj.label))
+        return
+      } else {
+        log(chalk.red("No config in " + driveObj.label))
+      }
+    })
+  })
+
+
+program.command('backup').description('Backup to a drive with a defined config file.').action(async ()=>{
+  let index = await createIndex()
+  if(index.length === 0){
+    log(chalk.red('No backup drives available.'))
+    return
+  }
+  index.forEach((drive, driveIndex) => {
+    if(!checkDriveForConfig(drive.path, drive.label)){
+      return
+    }
+    log(chalk.green(driveIndex + " Volume " + drive.label + ' @ ' + drive.path))
+  })
+  prompt([{
+    message: '\nSelect drive to backup with.',
+    name: 'selectedDrive',
+    type: 'input'
+  }]).then(async data=>{
+    if(!index[data['selectedDrive']]){
+      log(chalk.red('Invalid Index'))
+      return
+    }
+    log(chalk.green('\nSelected drive ' + data['selectedDrive'] + ' to initiate backup.'))
+    // load in config
+    log(chalk.cyan("\nCONFIG FOR VOLUME " + index[data['selectedDrive']].label + " @ " + index[data['selectedDrive']].path))
+    // loop through config contents and display each directory to backup
+    let readConfig = readline.createInterface({
+      input:  fs.createReadStream(path.join(index[data['selectedDrive']].path, 'config.backer')),
+      
+    })
+    let backupPaths = []
+    readConfig.on('line', (line)=>{
+      if(!line){return}
+      backupPaths.push(line)
+      log(chalk.yellow(line))
+    })
     prompt([{
-      message: 'Which config would you like to erase?',
-      type: 'input',
-      name: 'drive-to-delete'
-    }])
+      message: 'Are you sure you want to backup?',
+      name: 'answer',
+      default: 'Yes',
+      type:'input'
+    }]).then(answer=>{
+      // log(chalk.red(JSON.stringify(answer)))
+      if(answer['answer'] !== 'Y' && answer['answer'] !== 'y' && answer['answer'] !== 'yes' && answer['answer'] !== 'YES' && answer['answer'] !== 'Yes'){
+        log(chalk.red('Invalid affirmation. Operation aborted.'))
+        return 
+      }
+      // create backup index from config
+      let d = new Date() // date for unique directory
+      date = d.getTime().toString()
+      backupPaths.forEach((backupPath, backupPathIndex)=>{
+        let source = backupPath
+        let destination = path.join(index[data['selectedDrive']].path, `backup_${date}`,path.basename(backupPath))
+        log(chalk.gray('Backing up directory - ' + source + ' to ' + destination))
+        let count = 0
+        fsx.copy(source, destination, (err)=>{
+          if(err){
+            log(chalk.red(err))
+          }
+          count++
+          log(chalk.green(`${count} of ${backupPaths.length} ` + source + ' to ' + destination + ' - success'))
+        })
+        
+      })
+
+
+
+
+    })
   })
 })
 
-// edit a config
-program.command('edit config').description('Select a config to edit').action(async ()=>{
-    let index = await createIndex()
-    index.forEach((driveObj)=>{
-        if(checkDriveForConfig(driveObj.path, driveObj.label)){
-            log(chalk.greenBright('Found config in ' + driveObj.label))
-            return
-        }
-        else{
-            log(chalk.red('No config in '+driveObj.label))
-        }
-    })
-})
 
 
 program
@@ -215,9 +324,9 @@ program
   .action(async () => {
     let index = await createIndex()
     // return if no compatible found
-    if(index.length < 1){
-        log(chalk.red('No non-system drives found.\n'))
-        return
+    if (index.length < 1) {
+      log(chalk.red("No non-system drives found.\n"))
+      return
     }
     log(chalk.green("Available Volumes:"))
     index.forEach((volume, indexIndex) => {
