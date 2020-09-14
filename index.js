@@ -14,6 +14,7 @@ const { error } = require("console")
 const readline = require("readline")
 const fsx = require("fs-extra")
 const getSize = require("get-folder-size")
+const clui = require('clui')
 program.version("0.0.1")
 // greeting
 figlet(
@@ -205,7 +206,7 @@ program
     )
     prompt([
       {
-        message: "Select Volume (index number):",
+        message: "Volume (index number):",
         name: "selectedVolume",
         type: "input",
       },
@@ -440,6 +441,8 @@ async function getBackupSize(backupPathArray) {
     let countNeeded = backupPathArray.length
     log(chalk.green("need " + countNeeded))
     let count = 0
+    let spinner = new clui.Spinner('Calculating...')
+    spinner.start()
     backupPathArray.forEach((pth) => {
       getSize(pth, (err, size) => {
         if (err) {
@@ -451,6 +454,7 @@ async function getBackupSize(backupPathArray) {
         count++
         if (count === countNeeded) {
           log(chalk.green("resolving"))
+          spinner.stop()
           resolve(returnSize)
         }
       })
@@ -473,8 +477,10 @@ async function editConfig(configPath) {
   // enter edit mode and loop until editing is done
   let editMode = true
   while (editMode) {
-    let getUpdatedFile = fs.readFileSync(path.join(configPath, 'config.backer'), 'utf-8')
-    let configPaths = getUpdatedFile.split(/\r?\n/)
+    // need to reload file every loop, as adding or editing will overwrite the original file
+   
+    let configPaths = createBackupPathsFromConfig(configPath)
+    log(chalk.cyan('\nBackup Directories (EDIT MODE)'))
     configPaths.forEach((pth, indx) => {
       if (pth) {
         log(chalk.white(indx) + chalk.green(" " + pth))
@@ -483,7 +489,7 @@ async function editConfig(configPath) {
     log(
       chalk.white(configPaths.length) +
         " " +
-        chalk.green.bgGray("add new directory")
+        chalk.green.bgGray("--- add new directory ---\n")
     )
     let ans = await prompt([
       {
@@ -517,6 +523,21 @@ async function editConfig(configPath) {
       return
     }
   }
+}
+
+function createBackupPathsFromConfig(configPath){
+  let configFile = fs.readFileSync(
+    path.join(configPath, "config.backer"),
+    "utf-8"
+  )
+  let configPathsArray = configFile.split(/\r?\n/)
+  // make sure no empty lines
+  configPathsArray.forEach((index, indx) => {
+    if (!configPathsArray[indx]) {
+      configPathsArray.pop()
+    }
+  })
+  return configPathsArray
 }
 
 async function createIndex() {
