@@ -172,8 +172,8 @@ program
   .command("edit config")
   .description("Select a config to edit")
   .action(async () => {
+    log(chalk.cyan("Searching all available volumes..."))
     let index = await createIndex()
-    log(chalk.cyan("Listing all available volumes...\n"))
     let count = 0
     index.forEach((driveObj, driveObjIndex) => {
       if (checkDriveForConfig(driveObj.path, driveObj.label)) {
@@ -188,15 +188,39 @@ program
         return
       } else {
         count++
-        log(chalk.red("No config in " + driveObj.label))
+        chalk.gray(driveObjIndex + " ") +
+          chalk.yellow(driveObj.label) +
+          " @ " +
+          chalk.yellow(driveObj.path + " ") +
+          chalk.yellow.bgGray("unconfigured")
       }
     })
-    log(chalk.gray("\n"+count + " volumes found."))
+    log(chalk.gray("\n" + count + " volumes found."))
+    if (index.length < 1) {
+      log(chalk.red("No configs to edit. Exiting..."))
+      return
+    }
     log(
-      chalk.gray(
-        "Select config to edit, or select empty drive to initialize."
-      )
+      chalk.gray("Select config to edit, or select empty drive to initialize.")
     )
+    prompt([
+      {
+        message: "Select Volume (index number):",
+        name: "selectedVolume",
+        type: "input",
+      },
+    ])
+      .then((value) => {
+        if (!index[value["selectedVolume"]]) {
+          log(chalk.red("Invalid Selection."))
+          return
+        } else {
+          editConfig(index[value["selectedVolume"]].path)
+        }
+      })
+      .catch((err) => {
+        throw err
+      })
   })
 
 program
@@ -241,21 +265,24 @@ program
             index[data["selectedDrive"]].path
         )
       )
-  
-      let readConfig = fs.readFileSync( path.join(index[data["selectedDrive"]].path, "config.backer"), 'utf-8')
+
+      let readConfig = fs.readFileSync(
+        path.join(index[data["selectedDrive"]].path, "config.backer"),
+        "utf-8"
+      )
       let lines = readConfig.split(/\r?\n/)
       let backupPaths = []
-      lines.forEach((pathLine)=>{
-        if(pathLine){
+      lines.forEach((pathLine) => {
+        if (pathLine) {
           backupPaths.push(pathLine)
-          log(chalk.yellow('dir: '+pathLine))
+          log(chalk.yellow("dir: " + pathLine))
         }
       })
       // get sizes for progress display
       log(chalk.gray("Calculating size..."))
       let totalSize = await getBackupSize(backupPaths)
-      
-      log(chalk.green("Est. backup size: " + (totalSize/1000000) + "Mb."))
+
+      log(chalk.green("Est. backup size: " + totalSize / 1000000 + "Mb."))
       prompt([
         {
           message: "Are you sure you want to backup?",
@@ -408,11 +435,10 @@ program
 program.parse(process.argv)
 
 async function getBackupSize(backupPathArray) {
-
-  return new Promise((resolve,reject)=>{
+  return new Promise((resolve, reject) => {
     let returnSize = 0
     let countNeeded = backupPathArray.length
-    log(chalk.green('need '+countNeeded))
+    log(chalk.green("need " + countNeeded))
     let count = 0
     backupPathArray.forEach((pth) => {
       getSize(pth, (err, size) => {
@@ -423,16 +449,74 @@ async function getBackupSize(backupPathArray) {
         log(chalk.green("Directory " + pth + " total size: " + size))
         returnSize += size
         count++
-        if(count === countNeeded){
-          log(chalk.green('resolving'))
+        if (count === countNeeded) {
+          log(chalk.green("resolving"))
           resolve(returnSize)
         }
       })
-      
     })
   })
-  
-  // return returnSize
+}
+
+async function editConfig(configPath) {
+  let configFile = fs.readFileSync(
+    path.join(configPath, "config.backer"),
+    "utf-8"
+  )
+  let configPaths = configFile.split(/\r?\n/)
+  // make sure no empty lines
+  configPaths.forEach((index, indx) => {
+    if (!configPaths[indx]) {
+      configPaths.pop()
+    }
+  })
+  // enter edit mode and loop until editing is done
+  let editMode = true
+  while (editMode) {
+    let getUpdatedFile = fs.readFileSync(path.join(configPath, 'config.backer'), 'utf-8')
+    let configPaths = getUpdatedFile.split(/\r?\n/)
+    configPaths.forEach((pth, indx) => {
+      if (pth) {
+        log(chalk.white(indx) + chalk.green(" " + pth))
+      }
+    })
+    log(
+      chalk.white(configPaths.length) +
+        " " +
+        chalk.green.bgGray("add new directory")
+    )
+    let ans = await prompt([
+      {
+        message: "Select option. (ctrl+c to exit)",
+        type: "input",
+        name: "selection",
+      },
+    ])
+    if (configPaths[ans["selection"]]) {
+      // call edit menu for this path
+    }
+    if (ans["selection"] == configPaths.length) {
+      //call add new path menu
+      let newPath = await prompt([
+        {
+          message: "Enter new path/directory and hit enter.",
+          type: "input",
+          name: "newPath",
+        },
+      ])
+      if (newPath["newPath"]) {
+        // add new path to index
+        fs.appendFileSync(
+          path.join(configPath, "config.backer"),
+          `${newPath["newPath"]}\n`
+        )
+        log(chalk.green("Added " + newPath["newPath"] + "!"))
+      }
+    } else {
+      log(chalk.red("Invalid response."))
+      return
+    }
+  }
 }
 
 async function createIndex() {
