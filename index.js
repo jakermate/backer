@@ -45,7 +45,6 @@ program.command("debug").action(async () => {
 
 // searches for backup config file in root of every mounted volume
 // format for config <volumelabel>.config.backertool
-async function createConfig() {}
 program
   .command("createconfig")
   .description("Create a backup config on volume if one is not present.")
@@ -242,28 +241,21 @@ program
             index[data["selectedDrive"]].path
         )
       )
-      // loop through config contents and display each directory to backup
-      let readConfig = readline.createInterface({
-        input: fs.createReadStream(
-          path.join(index[data["selectedDrive"]].path, "config.backer")
-        ),
-      })
+  
+      let readConfig = fs.readFileSync( path.join(index[data["selectedDrive"]].path, "config.backer"), 'utf-8')
+      let lines = readConfig.split(/\r?\n/)
       let backupPaths = []
-      readConfig.on("line", (line) => {
-        if (!line) {
-          return
+      lines.forEach((pathLine)=>{
+        if(pathLine){
+          backupPaths.push(pathLine)
+          log(chalk.yellow('dir: '+pathLine))
         }
-        backupPaths.push(line)
-        log(chalk.yellow(line))
       })
       // get sizes for progress display
-      let totalSize = 0
       log(chalk.gray("Calculating size..."))
-      backupPaths.forEach((directory) => {
-        let dirSize = getDirectorySize(directory)
-        totalSize += dirSize
-      })
-      log(chalk.green("Backup size: " + totalSize + "b."))
+      let totalSize = await getBackupSize(backupPaths)
+      
+      log(chalk.green("Est. backup size: " + (totalSize/1000000) + "Mb."))
       prompt([
         {
           message: "Are you sure you want to backup?",
@@ -415,18 +407,32 @@ program
 
 program.parse(process.argv)
 
-async function getDirectorySize(directory) {
-  let returnSize = 0
+async function getBackupSize(backupPathArray) {
 
-  getSize(dir, (err, size) => {
-    if (err) {
-      log(chalk.red("Error determining size of " + directory))
-      return
-    }
-    log(chalk.green("Directory " + directory + " total size: " + size))
-    returnSize = size
+  return new Promise((resolve,reject)=>{
+    let returnSize = 0
+    let countNeeded = backupPathArray.length
+    log(chalk.green('need '+countNeeded))
+    let count = 0
+    backupPathArray.forEach((pth) => {
+      getSize(pth, (err, size) => {
+        if (err) {
+          log(chalk.red("Error determining size of " + directory))
+          return
+        }
+        log(chalk.green("Directory " + pth + " total size: " + size))
+        returnSize += size
+        count++
+        if(count === countNeeded){
+          log(chalk.green('resolving'))
+          resolve(returnSize)
+        }
+      })
+      
+    })
   })
-  return returnSize
+  
+  // return returnSize
 }
 
 async function createIndex() {
